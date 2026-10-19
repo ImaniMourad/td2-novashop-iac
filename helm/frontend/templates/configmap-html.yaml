@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-html
+data:
+  index.html: |
+    <!doctype html>
+    <html lang="fr">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>NovaShop — TD2</title>
+      <style>
+        * { box-sizing: border-box; }
+        body {
+          margin: 0; padding: 40px 20px; background: #f0f4f8;
+          font-family: Arial, sans-serif; color: #1f2937;
+        }
+        main { max-width: 1050px; margin: auto; }
+        h1 { font-size: 38px; margin-bottom: 8px; }
+        .subtitle { color: #64748b; margin-bottom: 30px; }
+        .cards {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 18px; margin-bottom: 28px;
+        }
+        .card, .panel {
+          background: white; padding: 24px; border-radius: 12px;
+          box-shadow: 0 3px 14px #0000000a;
+        }
+        .card { border-top: 5px solid; }
+        .frontend { border-color: #2563eb; }
+        .backend { border-color: #f59e0b; }
+        .database { border-color: #16a34a; }
+        .label { font-size: 13px; color: #64748b; text-transform: uppercase; }
+        .value { margin-top: 14px; font-weight: bold; overflow-wrap: anywhere; }
+        .detail { color: #64748b; font-size: 13px; margin-top: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 14px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+        th { background: #f8fafc; }
+        button {
+          border: 0; border-radius: 7px; padding: 12px 18px;
+          background: #2563eb; color: white; cursor: pointer;
+        }
+        footer { margin-top: 24px; color: #64748b; font-size: 14px; }
+        #status { margin: 18px 0; }
+      </style>
+    </head>
+    <body>
+      <main>
+        <h1>NovaShop</h1>
+        <p class="subtitle">Application 3-tiers · K3s · Terraform · Ansible · Helm</p>
+        <div class="cards">
+          <section class="card frontend">
+            <div class="label">Frontend nginx</div>
+            <div class="value" id="frontend-pod">Chargement…</div>
+            <div class="detail">Pod ayant répondu à la requête de contrôle</div>
+          </section>
+          <section class="card backend">
+            <div class="label">Backend Python</div>
+            <div class="value" id="backend-pod">Chargement…</div>
+            <div class="detail">Pod ayant traité la requête API</div>
+          </section>
+          <section class="card database">
+            <div class="label">Base de données</div>
+            <div class="value">PostgreSQL 16</div>
+            <div class="detail">StatefulSet · Volume persistant 1 Gi</div>
+          </section>
+        </div>
+        <section class="card" style="border-color: #7c3aed; margin-bottom: 24px;">
+          <div class="label">Visites totales</div>
+          <div class="value" id="visits-total">Chargement…</div>
+          <div class="detail">Un appel au compteur est enregistré à chaque actualisation.</div>
+        </section>
+        <section class="panel">
+          <h2>Catalogue des articles</h2>
+          <table>
+            <thead><tr><th>ID</th><th>Nom de l'article</th></tr></thead>
+            <tbody id="items"></tbody>
+          </table>
+          <p id="status">Connexion à l'API…</p>
+          <button id="refresh" type="button">Actualiser</button>
+        </section>
+        <footer>TD2 — IMANI Mourad · Actualisation automatique toutes les 5 secondes</footer>
+      </main>
+      <script>
+        let refreshing = false;
+
+        async function refresh() {
+          if (refreshing) return;
+          refreshing = true;
+          try {
+            const front = await fetch("/", {method: "HEAD", cache: "no-store"});
+            if (!front.ok) throw new Error("Frontend HTTP " + front.status);
+            document.getElementById("frontend-pod").textContent =
+              front.headers.get("X-Pod-Name") || "Non disponible";
+
+            const response = await fetch("/api/items", {cache: "no-store"});
+            if (!response.ok) throw new Error("API HTTP " + response.status);
+            const data = await response.json();
+            document.getElementById("backend-pod").textContent = data.pod;
+
+            const visitsResponse = await fetch("/api/visits", {cache: "no-store"});
+            if (!visitsResponse.ok) {
+              throw new Error("Compteur HTTP " + visitsResponse.status);
+            }
+            const visitsData = await visitsResponse.json();
+            document.getElementById("visits-total").textContent = visitsData.visits;
+
+            const tbody = document.getElementById("items");
+            tbody.replaceChildren();
+            for (const item of data.items) {
+              const row = document.createElement("tr");
+              for (const value of [item.id, item.name]) {
+                const cell = document.createElement("td");
+                cell.textContent = value;
+                row.appendChild(cell);
+              }
+              tbody.appendChild(row);
+            }
+            document.getElementById("status").textContent =
+              data.items.length + " articles · Dernière actualisation : " +
+              new Date().toLocaleTimeString("fr-FR");
+            document.getElementById("status").style.color = "#15803d";
+          } catch (error) {
+            document.getElementById("status").textContent = "Erreur : " + error.message;
+            document.getElementById("status").style.color = "#dc2626";
+          } finally {
+            refreshing = false;
+          }
+        }
+
+        document.getElementById("refresh").addEventListener("click", refresh);
+        refresh();
+        setInterval(refresh, 5000);
+      </script>
+    </body>
+    </html>

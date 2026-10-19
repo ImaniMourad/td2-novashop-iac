@@ -1,0 +1,41 @@
+---
+- name: Desactiver systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: false
+
+- name: Configurer le DNS statique du laboratoire
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    follow: false
+    content: |
+      nameserver 1.1.1.1
+      nameserver 8.8.8.8
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ajouter le nom de la VM dans hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ inventory_hostname }}"
+    state: present
+
+- name: Mettre a jour le cache APT
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Installer les paquets prerequis
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - netcat-openbsd
+    state: present
+
+- name: Verifier la resolution DNS de get.k3s.io
+  ansible.builtin.command: getent ahostsv4 get.k3s.io
+  changed_when: false

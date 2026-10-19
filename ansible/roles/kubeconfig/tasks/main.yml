@@ -1,0 +1,15 @@
+---
+- name: Lire le kubeconfig dans la VM
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  register: kubeconfig_raw
+  no_log: true
+
+- name: Enregistrer le kubeconfig sur DevStack
+  ansible.builtin.copy:
+    dest: "{{ playbook_dir }}/kubeconfig"
+    content: "{{ kubeconfig_raw.content | b64decode }}"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  no_log: true

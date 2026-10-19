@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+      annotations:
+        checksum/code: {{ include (print $.Template.BasePath "/configmap-code.yaml") . | sha256sum }}
+    spec:
+      initContainers:
+        - name: install-deps
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["sh", "-c"]
+          args:
+            - pip install --quiet --no-cache-dir --target /pip pg8000
+          volumeMounts:
+            - name: pip
+              mountPath: /pip
+      containers:
+        - name: backend
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["python", "/app/app.py"]
+          ports:
+            - containerPort: 5000
+          env:
+            - name: PYTHONPATH
+              value: /pip
+            - name: DB_HOST
+              value: {{ .Values.db.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: DB_USER
+              value: {{ .Values.db.user | quote }}
+            - name: DB_PASSWORD
+              value: {{ .Values.db.password | quote }}
+            - name: DB_NAME
+              value: {{ .Values.db.name | quote }}
+          readinessProbe:
+            httpGet:
+              path: /api/items
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 15
+          volumeMounts:
+            - name: code
+              mountPath: /app
+            - name: pip
+              mountPath: /pip
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+      volumes:
+        - name: code
+          configMap:
+            name: backend-code
+        - name: pip
+          emptyDir: {}

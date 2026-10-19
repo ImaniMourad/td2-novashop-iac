@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-code
+data:
+  app.py: |
+    import os
+    import socket
+    import json
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.parse import urlsplit
+    import pg8000.native
+
+    DB = dict(
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        host=os.environ["DB_HOST"],
+        port=int(os.environ["DB_PORT"]),
+        database=os.environ["DB_NAME"],
+        timeout=10,
+    )
+
+    class Handler(BaseHTTPRequestHandler):
+        def send_json(self, status, data):
+            body = json.dumps(data).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            path = urlsplit(self.path).path
+            if path not in ("/api/items", "/api/visits"):
+                self.send_json(404, {"error": "Not found"})
+                return
+
+            conn = None
+            try:
+                conn = pg8000.native.Connection(**DB)
+                pod = socket.gethostname()
+
+                if path == "/api/items":
+                    rows = conn.run("SELECT id, name FROM items ORDER BY id")
+                    result = {
+                        "pod": pod,
+                        "items": [{"id": r[0], "name": r[1]} for r in rows],
+                    }
+                else:
+                    conn.run(
+                        "INSERT INTO visits (pod_name) VALUES (:pod)",
+                        pod=pod,
+                    )
+                    total = conn.run("SELECT COUNT(*) FROM visits")[0][0]
+                    result = {"pod": pod, "visits": total}
+
+            except Exception as error:
+                print(f"Database error: {error}", flush=True)
+                self.send_json(500, {"error": "Database operation failed"})
+                return
+            finally:
+                if conn is not None:
+                    conn.close()
+
+            self.send_json(200, result)
+
+        def log_message(self, *args):
+            pass
+
+    if __name__ == "__main__":
+        HTTPServer(("0.0.0.0", 5000), Handler).serve_forever()

@@ -1,0 +1,63 @@
+---
+- name: Creer le dossier de configuration K3s
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: '0755'
+
+- name: Ecrire la configuration K3s
+  ansible.builtin.copy:
+    dest: /etc/rancher/k3s/config.yaml
+    content: |
+      node-name: {{ inventory_hostname }}
+      write-kubeconfig-mode: "0640"
+      write-kubeconfig-group: "ubuntu"
+    mode: '0644'
+  notify: Redemarrer K3s
+
+- name: Telecharger le script officiel K3s
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /usr/local/src/install-k3s.sh
+    mode: '0755'
+    force: false
+    timeout: 60
+
+- name: Installer K3s comme serveur
+  ansible.builtin.command: sh /usr/local/src/install-k3s.sh
+  environment:
+    INSTALL_K3S_EXEC: server
+    INSTALL_K3S_CHANNEL: stable
+  args:
+    creates: /etc/systemd/system/k3s.service
+
+- name: Activer et demarrer K3s
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Appliquer les changements de configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Attendre le port de l'API Kubernetes
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 180
+
+- name: Attendre que le noeud soit Ready
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - wait
+      - --for=condition=Ready
+      - "node/{{ inventory_hostname }}"
+      - --timeout=180s
+  register: node_ready
+  changed_when: false
+  retries: 3
+  delay: 10
+  until: node_ready.rc == 0
